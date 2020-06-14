@@ -1,0 +1,4 @@
+*.d
+*.obj
+*~
+/run_reluplex.elf

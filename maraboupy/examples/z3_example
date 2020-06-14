@@ -1,0 +1,22 @@
+//https://rise4fun.com/z3/tutorial/guide
+
+(declare-const sk Real)
+(declare-const w Real)
+(assert (= w 1))
+
+(define-fun ReLu ((x Real)) Real
+    (if (>= x 0.0)
+      x
+      0.0))
+    
+(define-fun output ((sk Real) (weight Real)) Real
+  (ReLu (* sk weight)))
+
+(assert (= sk 5))
+
+(assert (> (output sk w) -1))
+(assert (< (output sk w) 1))
+(check-sat)
+(get-model)
+
+	
