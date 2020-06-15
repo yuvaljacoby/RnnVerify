@@ -1,4 +1,5 @@
-*** RnnVerify, June 2020 ***
+# RnnVerify
+June 2020
 
 This repository contains the proof-of-concept implementation of the
 RnnVerify tool, as described in the paper:
