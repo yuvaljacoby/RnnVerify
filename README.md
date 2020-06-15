@@ -35,8 +35,7 @@ Get python dependencies (we do recommand using virtualenv):
 
     pip install -r requirements.txt
 
-    Note that this will *not* install gurobipy (since it does not support pip),
-    [here](https://support.gurobi.com/hc/en-us/community/posts/360046430451-installing-gurobi-in-python-requires-root-access) is one solution to make gurobipy work in virtualenv
+Note that this will *not* install gurobipy (since it does not support pip), [here](https://support.gurobi.com/hc/en-us/community/posts/360046430451-installing-gurobi-in-python-requires-root-access) is one solution to make gurobipy work in virtualenv
 
 ## Running the experiments
 
@@ -44,7 +43,7 @@ The experiments files are in rnn_experiment folder and can be devided into two
 categories:
 
   (i) algorithms_compare - Compression of RnnVerify to the Unrolling method used in
-  (RNSVerify)[https://www.aaai.org/ojs/index.php/AAAI/article/view/4555].
+  [RNSVerify](https://www.aaai.org/ojs/index.php/AAAI/article/view/4555).
 
   (ii) self_compare - Using RnnVerify to prove local robustness for Speaker
   Recognition networks.
