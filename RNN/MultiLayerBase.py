@@ -1,7 +1,7 @@
 from typing import List, Dict
 
 from RNN import MarabouRnnModel
-from polyhedron_algorithms.GurobiBased.SingleLayerBase import GurobiSingleLayer
+from RNN.SingleLayerBase import GurobiSingleLayer
 
 POLYHEDRON_MAX_DIM = 1
 

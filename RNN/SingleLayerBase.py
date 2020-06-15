@@ -8,7 +8,7 @@ from gurobipy import LinExpr, Var, Model, Env, GRB, setParam
 
 from RNN.MarabouRNNMultiDim import alpha_to_equation
 from maraboupy import MarabouCore
-from polyhedron_algorithms.GurobiBased.Bound import Bound
+from RNN.Bound import Bound
 
 random.seed(0)
 sign = lambda x: 1 if x >= 0 else -1
@@ -368,16 +368,9 @@ class GurobiSingleLayer:
                     self.add_disjunction_rhs(gmodel, conds=conds_u, lhs=au.get_lhs(t + 1),
                                              greater=True, cond_name="alpha_u{}_t{}".format(hidden_idx, t))
 
-                    # self.add_disjunction_rhs(gmodel, conds_l, alphas_l[hidden_idx] * (t + 1), False,
-                    #                          "alpha_l{}_t{}".format(hidden_idx, t))
-                    # self.add_disjunction_rhs(gmodel, conds_u, alphas_u[hidden_idx] * (t + 1), True,
-                    #                          "alpha_u{}_t{}".format(hidden_idx, t))
-
         if not PRINT_GUROBI:
             gmodel.setParam('OutputFlag', False)
 
-        if self.debug:
-            gmodel.write("get_gurobi_polyhedron_model_step{}.lp".format(self.step_num))
         return env, gmodel
 
     def set_gurobi_vars(self, gmodel: Model) -> Tuple[List[List[Bound]], List[List[Bound]]]:
@@ -399,14 +392,7 @@ class GurobiSingleLayer:
         :param gmodel: infeasible model, None if the last mode was feasible but invariant failed
         :return wheater to do another step or not
         '''
-        # gmodel.computeIIS()
-        # gmodel.write("gurobi_improve.ilp")
-        # if not self.approximate_layers:
-        #     self.approximate_layers = True
-        #     return True
-
         self.step_num += 1
-        # self.polyhedron_current_dim += 1
         self.approximate_layers = False
         return self.step_num <= self.polyhedron_max_dim
 
@@ -419,10 +405,6 @@ class GurobiSingleLayer:
             idx = random.choice(valid_idx)
         assert previous_alphas[idx] != 0
         assert idx not in failed_improves
-
-        # idx = np.random.randint(0, len(previous_alphas))
-        # while previous_alphas[idx] == 0 or idx in failed_improves:
-        #     idx = np.random.randint(0, len(previous_alphas))
 
         if idx < len(previous_alphas) / 2:
             return self.alphas_l[idx] >= previous_alphas[idx] * 2, "ce_output_alpha_l", idx
@@ -502,12 +484,6 @@ class GurobiSingleLayer:
                 self.equations = None
                 alphas = None
 
-        # if self.UNSAT:
-        #     self.equations = None
-        #     return None
-
-        # if alphas is None and not self.UNSAT:
-        #     assert False
         end_time_step = timer()
         self.stats[STAT_TOTAL_TIME] += (end_time_step - start_time_step)
         gmodel.dispose()
@@ -597,13 +573,8 @@ class GurobiSingleLayer:
 
         if invariants_results != [] and invariants_results is not None:
             pass
-            # If we all invariants from above or bottom are done do step in the other
-            # if all(min_invariants_results):
-            #     self.next_is_max = True
-            # elif all(max_invariants_results):
-            #     self.next_is_max = False
 
-        # TODO: If this condition is true it means the last step we did was not good, and we can decide what to do next
+        # If this condition is true it means the last step we did was not good, and we can decide what to do next
         #  (for example revert, and once passing all directions do a big step)
         if self.last_fail == strengthen:
             self.same_step_counter += 1
@@ -612,7 +583,7 @@ class GurobiSingleLayer:
 
         self.last_fail = strengthen
 
-        # If the invariant failed we use two techinques to solve it: a. add the spesific counter example, b. add the time stemp
+        # If the invariant failed we use two techniques to solve it: a. add the specific counter example, b. add the time stamp
         counter_examples = None
         if not strengthen:
             print("{} Previous gurobi was not invariant, improve".format(str(datetime.now()).split(".")[0]))
@@ -633,15 +604,11 @@ class GurobiSingleLayer:
             return None
 
         if new_alphas == self.alphas:
-            # No improvement
-            # TODO: What should we do in this case?
-            # assert False
             return None
 
         if new_alphas is None:
+            # No feasible solution, maybe to much over approximation, improve at random
             assert False
-            # No fesabile solution, maybe to much over approximation, improve at random
-            # TODO: Can we get out of this situation? fall back to something else or doomed to random?
         else:
             self.alphas = new_alphas
 

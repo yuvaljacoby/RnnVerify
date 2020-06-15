@@ -8,7 +8,6 @@ BASE_FOLDER = "/home/yuval/projects/Marabou/"
 if os.path.exists("/cs/usr/yuvalja/projects/Marabou"):
     BASE_FOLDER = "/cs/usr/yuvalja/projects/Marabou"
 
-#OUT_FOLDER = os.path.join(BASE_FOLDER, "FMCAD_EXP/out/")
 OUT_FOLDER = os.path.join(BASE_FOLDER, "ATVA_EXP/out_rns/")
 os.makedirs(BASE_FOLDER, exist_ok=True)
 os.makedirs(OUT_FOLDER, exist_ok=True)
@@ -35,7 +34,7 @@ def write_one_sbatch(output_folder, t):
         slurm_file.write('#SBATCH --mail-user=yuvalja@cs.huji.ac.il\n')
         slurm_file.write('export LD_LIBRARY_PATH=/cs/usr/yuvalja/projects/Marabou\n')
         slurm_file.write('export PYTHONPATH=$PYTHONPATH:"$(dirname "$(pwd)")"/Marabou\n')
-        slurm_file.write('python3 rnn_experiment/algorithms_compare/iterations_experiment.py {} {}\n'.format("exact", t))
+        slurm_file.write('python3 rnn_experiment/algorithms_compare/experiment.py {} {}\n'.format("exact", t))
 
 def create_sbatch(output_folder: str, times: int):
     print("*" * 100)

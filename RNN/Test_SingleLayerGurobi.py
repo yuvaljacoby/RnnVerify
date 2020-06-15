@@ -5,8 +5,8 @@ import numpy as np
 import pytest
 
 from RNN.Adversarial import adversarial_query, get_out_idx
-from polyhedron_algorithms.GurobiBased.MultiLayerBase import GurobiMultiLayer
-from polyhedron_algorithms.GurobiBased.SingleLayerBase import GurobiSingleLayer
+from RNN.MultiLayerBase import GurobiMultiLayer
+from RNN.SingleLayerBase import GurobiSingleLayer
 
 points = [
     np.array([1.0] * 40),
@@ -45,13 +45,9 @@ points = [
               -1.70496579e+00, 2.78837981e+00, 1.78557462e+00, 4.46912768e-01])
 ]
 paths = [
-    './models/model_20classes_rnn2_fc32_fc32_fc32_fc32_fc32_epochs50.h5',
-    './models/model_20classes_rnn4_fc32_fc32_fc32_fc32_fc32_epochs50.h5',
-    './models/old/model_20classes_rnn4_fc16_fc32_epochs3.h5',
-    './models/old/model_20classes_rnn4_fc32_fc16_epochs50.h5',
-    './models/old/model_20classes_rnn4_fc32_epochs40.h5',
-    './models/old/model_20classes_rnn4_fc32_epochs100.h5',
-
+    './models/model_20classes_rnn2_fc32_fc32_fc32_fc32_fc32.h5',
+    './models/model_20classes_rnn4_fc32_fc32_fc32_fc32_fc32.h5',
+    './models/model_marabou_rnsverify_compare.h5',
 ]
 
 
@@ -65,74 +61,6 @@ def test_using_gurobi(point, n, net_path):
     res, queries_stats, alpha_history = adversarial_query(point, 0.01, idx_max, other_idx, net_path,
                                                           gurobi_ptr, n)
     assert res
-
-
-def test_specific2():
-    point = points[6] # np.array([1.] * 40)
-    net_path = './models/old/model_20classes_rnn4_fc32_epochs100.h5'
-    n = 5
-    # point = points[5]
-    # net_path = './models/old/model_20classes_rnn4_fc32_epochs40.h5'
-    # n=5
-
-    gurobi_ptr = partial(GurobiSingleLayer, polyhedron_max_dim=1, use_relu=True, add_alpha_constraint=True,
-                         use_counter_example=True, debug=True)
-    method = lambda x: np.argsort(x)[-2]
-    idx_max, other_idx = get_out_idx(point, n, net_path, method)
-    res, _, _ = adversarial_query(point, 0.01, idx_max, other_idx, net_path, gurobi_ptr, n)
-    assert res
-
-
-def test_fast_unsat():
-    point = np.array([0.8] * 40)
-    net_path = './models/model_20classes_rnn2_fc32_fc32_fc32_fc32_fc32_epochs50.h5'
-    n = 2
-    gurobi_ptr = partial(GurobiSingleLayer, polyhedron_max_dim=1, use_relu=True, add_alpha_constraint=True,
-                         use_counter_example=True)
-    idx_max = 0
-    other_idx = 16
-    res, queries_stats, alpha_history = adversarial_query(point, 0.01, idx_max, other_idx, net_path,
-                                                          gurobi_ptr, n)
-    assert res
-
-
-@pytest.mark.parametrize(['point', 'n', 'net_path'],
-                         [[np.array([-1.0] * 40), 5, './models/old/model_20classes_rnn4_fc32_epochs40.h5'],
-                          [points[5], 5, './models/old/model_20classes_rnn4_fc32_epochs40.h5'],
-                          [points[-1], 5, './models/model_20classes_rnn4_fc32_fc32_fc32_fc32_fc32_epochs50.h5']
-                          ])
-def test_specific(point, n, net_path):
-    # point = np.array([-1.0] * 40)
-    # # net_path = './models/model_20classes_rnn4_fc32_fc32_fc32_fc32_fc32_epochs50.h5'
-    # net_path = './models/old/model_20classes_rnn4_fc32_epochs40.h5'
-    # n = 5
-
-    # point = points[5]
-    # # net_path = './models/model_20classes_rnn4_fc32_fc32_fc32_fc32_fc32_epochs50.h5'
-    # net_path = './models/old/model_20classes_rnn4_fc32_epochs40.h5'
-    # n = 5
-
-    # net_path = './models/model_20classes_rnn4_fc32_fc32_fc32_fc32_fc32_epochs50.h5'
-    # n = 5
-    # point = points[-1]
-
-    gurobi_ptr = partial(GurobiSingleLayer, polyhedron_max_dim=1, use_relu=True, add_alpha_constraint=True,
-                         use_counter_example=True, debug=True)
-    method = lambda x: np.argsort(x)[-2]
-    idx_max, other_idx = get_out_idx(point, n, net_path, method)
-    res, _, _ = adversarial_query(point, 0.01, idx_max, other_idx, net_path, gurobi_ptr, n)
-    assert res
-
-
-def test_add_epsilon_to_gurobi_example():
-    # When adding to gurobi the condition alpha*(i+1) >= alpha*i + x etc etc (add_disjunction_rhs)
-    # We add epsilon to the left side, to make gurobi "work harder" this test shows why we need that
-    # (if removing it this test fails)
-    point = np.array([-1.0] * 40)
-    n = 5
-    net_path = './models/old/model_20classes_rnn4_fc32_epochs40.h5'
-
-    test_specific(point, n, net_path)
 
 
 def test_temp():

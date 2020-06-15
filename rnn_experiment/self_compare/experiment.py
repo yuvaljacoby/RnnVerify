@@ -1,464 +1,366 @@
-# BASE_FOLDER = "/cs/usr/yuvalja/projects/Marabou"
-# import sys
-#
 # sys.path.insert(0, BASE_FOLDER)
-
 import os
 import pickle
 import sys
-import traceback
-from collections import OrderedDict
+from collections import defaultdict
 from datetime import datetime
 from functools import partial
 from timeit import default_timer as timer
+from typing import Tuple, List, Union
 
 import numpy as np
-import pandas as pd
+from prettytable import PrettyTable
 from tqdm import tqdm
 
-# TODO: Recall what we did how to run and move to polyhedron algorithms, and RNN folder
 from RNN.Adversarial import adversarial_query, get_out_idx
-from polyhedron_algorithms.GurobiBased.GurobiPolyhedronIISBased import GurobiMultiLayerIIS
-from polyhedron_algorithms.GurobiBased.GurobiPolyhedronRandomImprove import GurobiMultiLayerRandom
-from polyhedron_algorithms.GurobiBased.MultiLayerBase import GurobiMultiLayer
-from rnn_experiment.self_compare.create_sbatch_iterations_exp import BASE_FOLDER
+from RNN.MultiLayerBase import GurobiMultiLayer
+from rnn_experiment.self_compare.create_sbatch_iterations_exp import BASE_FOLDER, OUT_FOLDER
 
-# from rnn_algorithms.GurobiBased import AlphasGurobiBased
-# from rnn_algorithms.IterateAlphasSGD import IterateAlphasSGD
-# from rnn_algorithms.RandomAlphasSGD import RandomAlphasSGD
-# from rnn_algorithms.Update_Strategy import Absolute_Step, Relative_Step
+MODELS_FOLDER = os.path.join(BASE_FOLDER, "models/")
+POINTS_PATH = os.path.join(MODELS_FOLDER, "points.pkl") 
 
-MODELS_FOLDER = os.path.join(BASE_FOLDER, "FMCAD_EXP/models/")
-EXPERIMENTS_FOLDER = os.path.join(BASE_FOLDER, "working_arrays/")
 IN_SHAPE = (40,)
-SBATCH_FOLDER = "sbatch_exp"
-
-DEBUG = 1
-
-
-def run_one_comparison(in_tensor, radius, idx_max, other_idx, h5_file, n_iterations, algorithms_ptrs, steps_num=2500,
-                       return_dict=False):
-    results = {}
-
-    for name, algo_ptr in algorithms_ptrs.items():
-        print('starting algo:' + name)
-        start = timer()
-
-        try:
-            res, queries_stats, alpha_history = adversarial_query(in_tensor, radius, idx_max, other_idx, h5_file,
-                                                                  algo_ptr, n_iterations, steps_num)
-        except ValueError as e:
-            # row_result = {'point': in_tensor, 'error': e, 'error_traceback': traceback.format_exc(), 'result' : False}
-            res = False
-            queries_stats = {}
-            queries_stats['invariant_queries'] = -1
-            queries_stats['property_queries'] = -1
-            queries_stats['invariant_times'] = []
-            queries_stats['property_times'] = []
-            queries_stats['number_of_updates'] = -1
-        # res = False
-        # iterations = 23
-        end = timer()
-        if queries_stats is None:
-            return None
-        results[name] = {'time': end - start, 'result': res,
-                         'invariant_iterations': queries_stats['invariant_queries'],
-                         'property_iterations': queries_stats['property_queries'],
-                         'invariant_times': queries_stats['invariant_times'],
-                         'property_times': queries_stats['property_times'],
-                         'iterations': queries_stats['number_of_updates'],
-                         'in_tensor': in_tensor
-                         }
-        print("%%%%%%%%% {} {} %%%%%%%%%".format(res, end - start))
-
-    if return_dict:
-        return results
-    # print(results)
-    row_result = [results[n]['result'] for n in algorithms_ptrs.keys()] + \
-                 [results[n]['iterations'] for n in algorithms_ptrs.keys()] + \
-                 [results[n]['time'] for n in algorithms_ptrs.keys()] + \
-                 [results[n]['invariant_iterations'] for n in algorithms_ptrs.keys()] + \
-                 [results[n]['property_iterations'] for n in algorithms_ptrs.keys()] + \
-                 [results[n]['invariant_times'] for n in algorithms_ptrs.keys()] + \
-                 [results[n]['property_times'] for n in algorithms_ptrs.keys()] + \
-                 [results[n]['in_tensor'] for n in algorithms_ptrs.keys()]
-
-    return row_result
+NUM_SAMPLE_POINTS = 25
+NUM_RUNNER_UP = 1
+ALL_NETS = [f for f in os.listdir(MODELS_FOLDER) if f.endswith(".h5")]
 
 
-def get_random_input(model_path, mean, var, n_iterations):
-    #     return [14.27122768, 10.01429519, 15.79244755, 12.31632729, 10.77446205, 11.6998685
-    # , 10.02309098, 10.20288622, 10.1177965, 12.98410927, 11.80191447, 7.18403711
-    # , 8.64965939, 12.03823125, 11.88635415, 14.10741009, 12.95682361, 7.72710876
-    # , 10.92425513, 5.54067457, 7.44212401, 14.02778702, 4.92153551, 6.81608973
-    # , 7.61313801, 10.73096574, 15.37313871, 5.519518, 8.77897563, 12.87859216
-    # , 11.5303272, 5.33148159, 9.86905325, 5.87211545, 5.12149148, 8.93463704
-    # , 7.61022822, 5.07853598, 17.71975044, 8.69002408], 14, 11
+def run_experiment(in_tensor, radius, idx_max, other_idx, h5_file, gurobi_ptr, n_iterations, steps):
+    queries_stats = {}
+    start = timer()
+    try:
+        res, queries_stats, alpha_history = adversarial_query(in_tensor, radius, idx_max, other_idx, h5_file,
+                                                              gurobi_ptr, n_iterations, steps)
+    except ValueError as e:
+        # row_result = {'point': in_tensor, 'error': e, 'error_traceback': traceback.format_exc(), 'result' : False}
+        res = False
+    except TimeoutError as e:
+        res = False
+        queries_stats['FFNN_Timeout'] = True
+    except AssertionError as e:
+        res = False
 
-    while True:
-        in_tensor = np.random.normal(mean, var, IN_SHAPE)
+    end = timer()
 
-        # if any(in_tensor < 0):
-        #     print("resample got negative input")
-        #     continue
-        y_idx_max, other_idx = get_out_idx(in_tensor, n_iterations, model_path)
-        if y_idx_max is not None and other_idx is not None and y_idx_max != other_idx:
-            # in_tensor = np.array(
-            #     [-1.3047684, 5.46331191, 1.93008573, 5.54210032, -0.04579439, 0.84698066, 0.88733042, 0.36111682,
-            #      -0.89590958, 2.02979288, 0.02477424, 1.50918829, 1.8345788, 2.26410531, 3.49979787, 0.42402515,
-            #      -1.22385631, 0.78972247, -0.18285229, -1.71556589, -0.34333373, -0.4077247, -1.32055327, 3.3423448,
-            #      0.20721657, -2.58905041, 4.83447012, -0.25091597, 1.27664352, 2.0043919, -3.37314246, 2.1957612,
-            #      -2.1478245, 1.44939961, 1.59584935, 2.38236111, -1.84593505, 1.24174073, 2.45039407, 1.94192])
-            # y_idx_max = 14
-            # other_idx = 11
-            print(in_tensor)
-            return in_tensor, y_idx_max, other_idx
+    if queries_stats is not None:
+        queries_stats['total_time'] = end - start
+    return {'time': end - start, 'result': res, 'stats': queries_stats}
 
 
-def run_controlled_experiment(model_name, algorithms_ptrs, points, other_idx_method, radius=0.01, n_iterations=5, start_idx=0,
-                              steps_num=1500):
-    '''
-    Run a controled experiment, using the given points, start_idx will indicate from where to start iterating the points
-    The return value is dicitionary of raw_results, and the key is the index in points
-    Other then that there is a "experiment_details" key with other data (such as radius, n_iterations etc)
-    '''
-    model_path = model_name
-    if not os.path.exists(model_path):
-        model_path = os.path.join(MODELS_FOLDER, model_name)
+def run_all_experiments(net_options, points, t_range, other_idx_method, gurobi_ptr, radius=0.01, steps_num=1500,
+                        save_results=True):
+    # assert len(points) > 20
+    results = defaultdict(list)
+    if len(net_options) == 1:
+        net_name = ''.join(net_options[0].split('.')[:-1]).split('/')[-1]
+    else:
+        net_name = ''
+    pickle_path = os.path.join(OUT_FOLDER,
+                               'gurobi' + str(datetime.now()).replace('.', '').replace(' ', '') + "{}.pkl".format(
+                                   net_name))
+    print("starting fresh experiment", "\n", "#" * 100)
+    partial_results = {}
 
-    pickle_path = model_name.split('/')[-1] + str(radius) + "_".join(algorithms_ptrs.keys()) + \
-                  str(datetime.now()).replace('.', '').replace(' ', '')
-    print("###############results in pickle:\n{}\n#############################################".format(pickle_path))
-    results = {'experiment_details': {'radius': radius, 'n_iterations': n_iterations, 'start_idx': start_idx,
-                                      'model_name': model_name, 'start_time': datetime.now()}}
+    print("#" * 100, "\nwriting results to: {}".format(pickle_path), "\n", "#" * 100)
+    counter = 0
+    pbar = tqdm(total=len(other_idx_method) * len(points) * len(net_options) * len(t_range))
     for method in other_idx_method:
-        for i, point in tqdm(enumerate(points[start_idx:])):
-            y_idx_max, other_idx = get_out_idx(point, n_iterations, model_path, method)
-            try:
-                row_result = run_one_comparison(point, radius, y_idx_max, other_idx, model_path, n_iterations,
-                                                algorithms_ptrs, steps_num=steps_num, return_dict=True)
-            except Exception as e:
-                if DEBUG:
-                    raise e
-                row_result = {'point': point, 'error': e, 'error_traceback': traceback.format_exc(), 'result': False}
-            results.update({i + start_idx: row_result})
-            pickle.dump(results, open("controlled_{}.pkl".format(pickle_path), "wb"))
+        for idx, point in enumerate(points):
+            for path in net_options:
+                if not os.path.exists(path):
+                    path = os.path.join(MODELS_FOLDER, path)
+                    if not os.path.exists(path):
+                        raise FileNotFoundError(path)
+                for t in t_range:
+                    if counter < 0:
+                        counter += 1
+                        pbar.update(1)
+                        have_point = True
+                    else:
+                        have_point = False
+                        net_name = ''.join(path.split('.')[:-1]).split('/')[-1]
+                        name = "{}_{}_{}".format(net_name, radius, t)
+
+                        if name in partial_results:
+                            for res in partial_results[name]:
+                                if not have_point and res['t'] == t and \
+                                        (('in_tensor' in res and np.all(res['in_tensor'] == point)) or
+                                         ('in_tesnor' in res and np.all(res['in_tesnor'] == point))):
+                                    # already have this result
+                                    pbar.update(1)
+                                    results[name].append(res)
+                                    have_point = True
+                    if not have_point:
+                        idx_max, other_idx = get_out_idx(point, t, path, method)
+                        net_name = ''.join(path.split('.')[:-1]).split('/')[-1]
+
+                        result = run_experiment(point, radius, idx_max, other_idx, path, gurobi_ptr, t, steps=steps_num)
+                        result.update({'h5_file': net_name, 't': t, 'other_idx': other_idx, 'in_tensor': point,
+                                       'steps_num': steps_num})
+                        results[name].append(result)
+                        if not result['result']:
+                            print("FAIL on point index: {}".format(idx))
+                        pbar.update(1)
+                        if save_results:
+                            pickle.dump(results, open(pickle_path, "wb"))
+    if save_results:
+        parse_results_file(pickle_path)
     return results
 
 
-def run_random_experiment(model_name, algorithms_ptrs, num_points=150, mean=10, var=3, radius=0.01, n_iterations=50,
-                          steps_num=1000):
-    '''
-    runs comperasion between all the given algorithms on num_points each pointed sampled from Normal(mean,var)
-    :param model_name: h5 file in MODELS_FOLDER
-    :return: DataFrame with results
-    '''
-    cols = ['exp_name'] + ['{}_result'.format(n) for n in algorithms_ptrs.keys()] + \
-           ['{}_queries'.format(n) for n in algorithms_ptrs.keys()] + \
-           ['{}_time'.format(n) for n in algorithms_ptrs.keys()] + \
-           ['{}_invariant_queries'.format(n) for n in algorithms_ptrs.keys()] + \
-           ['{}_property_queries'.format(n) for n in algorithms_ptrs.keys()] + \
-           ['{}_invariant_times'.format(n) for n in algorithms_ptrs.keys()] + \
-           ['{}_property_times'.format(n) for n in algorithms_ptrs.keys()] + \
-           ['{}_in_tensor'.format(n) for n in algorithms_ptrs.keys()]
-
-    df = pd.DataFrame(columns=cols)
-    model_path = os.path.join(MODELS_FOLDER, model_name)
-    # pickle_path = model_name + "_randomexp_" + "_".join(algorithms_ptrs.keys()) + str(datetime.now()).replace('.', '')
-    pickle_path = model_name + str(radius) + "_".join(algorithms_ptrs.keys()) + \
-                  str(datetime.now()).replace('.', '').replace(' ', '')
-    for _ in tqdm(range(num_points)):
-        in_tensor, y_idx_max, other_idx = get_random_input(model_path, mean, var, n_iterations)
-
-        row_result = run_one_comparison(in_tensor, radius, y_idx_max, other_idx,
-                                        model_path,
-                                        n_iterations, algorithms_ptrs, steps_num=steps_num)
-        if row_result is None:
-            print("Got out vector with all entries equal")
-            continue
-        exp_name = model_path.split('.')[0].split('/')[-1] + '_' + str(n_iterations)
-        df = df.append({cols[i]: ([exp_name] + row_result)[i] for i in range(len(row_result) + 1)}, ignore_index=True)
-        print(df[[n for n in df.columns if "result" in n or 'queries' in n]])
-        # pickle.dump(df, open("results_{}.pkl".format(pickle_path), "wb"))
-    return df
-
-
-def run_experiment_from_pickle(pickle_name, algorithms_ptrs):
-    '''
-    The search_for_input method is creating a pickle with all the examples, read that and compare algorithms using the
-    examples from there
-    :param pickle_name: name of file inside the EXPERIMENTS_FOLDER
-    :param algorithms_ptrs: pointers to algorithms to run the experiment on
-    :return: DataFrame with experiment results
-    '''
-    pickle_path = os.path.join(EXPERIMENTS_FOLDER, pickle_name)
-    experiemnts = pickle.load(open(pickle_path, "rb"))
-    model_name = pickle_name.replace(".pkl", "")
-    model_path = "{}/{}.h5".format(MODELS_FOLDER, model_name)
-    cols = ['exp_name'] + ['{}_result'.format(n) for n in algorithms_ptrs.keys()] + \
-           ['{}_queries'.format(n) for n in algorithms_ptrs.keys()] + \
-           ['{}_time'.format(n) for n in algorithms_ptrs.keys()]
-    df = pd.DataFrame(columns=cols)
-
-    for exp in experiemnts:
-        row_result = run_one_comparison(exp['in_tensor'], exp['radius'], exp['idx_max'], exp['other_idx'],
-                                        model_path,
-                                        exp['n_iterations'], algorithms_ptrs)
-        exp_name = model_path.split('.')[0].split('/')[-1] + '_' + str(exp['n_iterations'])
-        df = df.append({cols[i]: ([exp_name] + row_result)[i] for i in range(len(row_result) + 1)}, ignore_index=True)
-        print(df)
-        pickle_path = model_name + "_".join(algorithms_ptrs.keys())
-        pickle.dump(df, open("results_{}.pkl".format(pickle_path), "wb"))
-
-    return df
-
-
-# def get_algorithms():
-#     Absolute_Step_Big = partial(Absolute_Step, options=[10 ** i for i in range(-5, 3)])
-#     Absolute_Step_Fixed = partial(Absolute_Step, options=[0.1])
-#     Relative_Step_Fixed = partial(Absolute_Step, options=[0.05])
-#     Relative_Step_Big = partial(Absolute_Step, options=[0.01, 0.05, 0.1, 0.3])
-#     sigmoid = lambda x: 1 / (1 + np.exp(-x))
-#
-#     def create_gurobi_permutations(compare_entry):
-#         possible_values = {
-#             'update_strategy_ptr': [Relative_Step],  # Absolute_Step,
-#             'random_threshold': [20, 1000],  # [5, 20,100,1000],
-#             'use_relu': [True, False],
-#             'add_alpha_constraint': [True, False],
-#             'use_counter_example': [True, False],
-#         }
-#         from itertools import product
-#         cartesian_product = [OrderedDict(zip(possible_values, v)) for v in product(*possible_values.values())]
-#         experiments = {}
-#         for entry in cartesian_product:
-#             entry_name = "gurobi_" + "_".join([str(v) for v in entry.values() if type(v) != type])
-#             entry_pointer = partial(AlphasGurobiBased, **entry)
-#             experiments.update({'{}_{}'.format(entry_name, compare_entry[0]): OrderedDict({
-#                 entry_name: entry_pointer,
-#                 compare_entry[0]: compare_entry[1]
-#             })})
-#
-#         return experiments
-#
-#     return create_gurobi_permutations(('random_relative', partial(RandomAlphasSGD, update_strategy_ptr=Relative_Step)))
-#
-#     # experiments = {
-#     #     # 'weighted_tanh': OrderedDict({
-#     #     #     'weighted_tanh_relative': partial(WeightedAlphasSGD, update_strategy_ptr=Relative_Step, activation=np.tanh),
-#     #     #     'weighted_relative': partial(WeightedAlphasSGD, update_strategy_ptr=Relative_Step),
-#     #     # }),
-#     #     # 'random_tanh': OrderedDict({
-#     #     #     'weighted_tanh_relative': partial(WeightedAlphasSGD, update_strategy_ptr=Relative_Step, activation=np.tanh),
-#     #     #     'random_relative': partial(RandomAlphasSGD, update_strategy_ptr=Relative_Step),
-#     #     # }),
-#     #     'random_gurobi_relative': OrderedDict({
-#     #         'gurobi_relative': partial(AlphasGurobiBased, update_strategy_ptr=Relative_Step),
-#     #         'random_relative': partial(RandomAlphasSGD, update_strategy_ptr=Relative_Step),
-#     #     }),
-#     #
-#     #     'random_sigmoid_relative': OrderedDict({
-#     #         'random_relative': partial(RandomAlphasSGD, update_strategy_ptr=Relative_Step),
-#     #         'weighted_sigmoid_relative': partial(WeightedAlphasSGD, update_strategy_ptr=Relative_Step,
-#     #                                              activation=sigmoid),
-#     #     }),
-#     #     'random_sigmoid_absolute': OrderedDict({
-#     #         'random_absolute': partial(RandomAlphasSGD, update_strategy_ptr=Absolute_Step),
-#     #         'weighted_sigmoid_absolute': partial(WeightedAlphasSGD, update_strategy_ptr=Absolute_Step,
-#     #                                              activation=sigmoid),
-#     #     }),
-#     #     # 'all_random_relative': OrderedDict({
-#     #     #     'all_relative': partial(AllAlphasSGD, update_strategy_ptr=Relative_Step),
-#     #     #     'random_relative': partial(RandomAlphasSGD, update_strategy_ptr=Relative_Step),
-#     #     # }),
-#     #     # 'all_tanh_relative': OrderedDict({
-#     #     #     'all_relative': partial(AllAlphasSGD, update_strategy_ptr=Relative_Step),
-#     #     #     'weighted_tanh_relative': partial(WeightedAlphasSGD, update_strategy_ptr=Relative_Step, activation=np.tanh),
-#     #     # }),
-#     #     'all_sigmoid_relative': OrderedDict({
-#     #         'all_relative': partial(AllAlphasSGD, update_strategy_ptr=Relative_Step),
-#     #         'sigmoid_relative': partial(WeightedAlphasSGD, update_strategy_ptr=Relative_Step,
-#     #                                     activation=sigmoid),
-#     #     }),
-#     #     'sigmoid_absolute_relative': OrderedDict({
-#     #         'sigmoid_relative': partial(AllAlphasSGD, update_strategy_ptr=Relative_Step),
-#     #         'sigmoid_absolute': partial(WeightedAlphasSGD, update_strategy_ptr=Absolute_Step,
-#     #                                     activation=sigmoid),
-#     #     }),
-#     #     'all_absolute_relative': OrderedDict({
-#     #         'all_absolute': partial(AllAlphasSGD, update_strategy_ptr=Absolute_Step),
-#     #         'all_absolute': partial(AllAlphasSGD, update_strategy_ptr=Relative_Step),
-#     #     }),
-#     # }
-#     # return experiments
-
-
-# def get_algorithms_list():
-#     return [
-#         {'random_relative': partial(RandomAlphasSGD, update_strategy_ptr=Relative_Step)},
-#         {'gurobi_relative_20_1_1_0':
-#              partial(AlphasGurobiBased, update_strategy_ptr=Relative_Step, random_threshold=20, use_relu=True,
-#                      add_alpha_constraint=True, use_counter_example=False)},
-#         {'gurobi_relative_20_1_1_1':
-#              partial(AlphasGurobiBased, update_strategy_ptr=Relative_Step, random_threshold=20, use_relu=True,
-#                      add_alpha_constraint=True, use_counter_example=True)},
-#         {'gurobi_relative_20_0_1_1':
-#              partial(AlphasGurobiBased, update_strategy_ptr=Relative_Step, random_threshold=20, use_relu=False,
-#                      add_alpha_constraint=True, use_counter_example=True)},
-#         {'gurobi_relative_20_0_0_0':
-#              partial(AlphasGurobiBased, update_strategy_ptr=Relative_Step, random_threshold=20, use_relu=False,
-#                      add_alpha_constraint=False, use_counter_example=False)}
-#     ]
-
-
-def get_all_algorithms():
-    algorithms_ptrs = OrderedDict({
-        'gurobi_base': partial(GurobiMultiLayer, use_relu=True, add_alpha_constraint=True, use_counter_example=True),
-        'gurobi_random': partial(GurobiMultiLayerRandom, use_relu=True, add_alpha_constraint=True,
-                                 use_counter_example=True, max_steps=3),
-        'gurobi_IIS': partial(GurobiMultiLayerIIS, use_relu=True, add_alpha_constraint=True,
-                              use_counter_example=True, max_steps=3)
-    })
-
-    return algorithms_ptrs
-
-
-def get_model_path(path: str) -> str:
-    if not os.path.exists(path):
-        path = os.path.join(MODELS_FOLDER, path)
-        if not os.path.exists(path):
-            raise FileNotFoundError(path)
-
-
-def create_sbatch_files(folder_to_write):
-    exps = get_all_algorithms()
-    models = ['model_20classes_rnn4_rnn4_rnn4_fc32_fc32_fc32_0200.pkl',
-              'model_20classes_rnn4_rnn4_rnn4_rnn4_fc32_fc32_fc32_0200.pkl',
-              'model_20classes_rnn8_rnn8_fc32_fc32_0200.pkl',
-              'model_20classes_rnn12_rnn12_fc32_fc32_fc32_fc32_0200.pkl',
-              'model_20classes_rnn16_fc32_fc32_fc32_fc32_0100.pkl',
-              'model_20classes_rnn8_rnn4_rnn4_fc32_fc32_fc32_fc32_0150.pkl']
-    for exp in exps.keys():
-        for model in models:
-            model = get_model_path()
-            exp_time = str(datetime.now()).replace(" ", "-")
-            with open(os.path.join(folder_to_write, "run_" + exp + model + ".sh"), "w") as slurm_file:
-                # job_output_rel_path = "slurm_{exp}_{exp_time}.out"
-                job_output_rel_path = "slurm_{}_{}.out".format(exp, exp_time)
-                slurm_file.write('#!/bin/bash\n')
-                slurm_file.write('#SBATCH --job-name={}_{}_{}\n'.format(model, exp, exp_time))
-                # slurm_file.write(f'#SBATCH --job-name={model}_{exp}_{exp_time}\n')
-                slurm_file.write('#SBATCH --cpus-per-task=3\n')
-                # slurm_file.write(f'#SBATCH --output={model}_{job_output_rel_path}\n')
-                slurm_file.write('#SBATCH --output={}_{}\n'.format(model, job_output_rel_path))
-                # slurm_file.write(f'#SBATCH --partition={partition}\n')
-                slurm_file.write('#SBATCH --time=30:00:00\n')
-                slurm_file.write('#SBATCH --mem-per-cpu=300\n')
-                slurm_file.write('#SBATCH --mail-type=BEGIN,END,FAIL\n')
-                slurm_file.write('#SBATCH --mail-user=yuvalja@cs.huji.ac.il\n')
-                slurm_file.write('export LD_LIBRARY_PATH=/cd/usr/yuvalja/projects/Marabou\n')
-                slurm_file.write('export PYTHONPATH=$PYTHONPATH:"$(dirname "$(pwd)")"/Marabou\n')
-                # slurm_file.write(f'python3 rnn_experiment/self_compare/experiment.py {exp} {model}\n')
-                slurm_file.write('python3 rnn_experiment/self_compare/experiment.py {} {}\n'.format(exp, model))
-
-
-def parse_input_strings():
-    network_path = "model_20classes_rnn4_fc32_epochs40.h5"
-
-    if len(sys.argv) > 1:
-        print(sys.argv[1])
-        if sys.argv[1] == 'create_sbatch':
-            sbatch_folder = os.path.join(SBATCH_FOLDER)
-            if not os.path.exists(sbatch_folder):
-                os.mkdir(sbatch_folder)
-            create_sbatch_files(sbatch_folder)
-            print("created experiments in: {}".format(SBATCH_FOLDER))
-            exit(0)
-        elif sys.argv[1] == 'single':
-            # If single, add another argument with the index in the get_algorithms_list function
-            # algorithms_ptrs = get_algorithms_list()[int(sys.argv[2])]
-            raise NotImplementedError
-        elif sys.argv[1] == 'net':
-            # If net, use the predefined all_algorithms
-            network_path = sys.argv[2]
-            algorithms_ptrs = get_all_algorithms()
+def extract_model_name(name: str) -> str:
+    if 'rnn' not in name or 'fc32' not in name:
+        return name
+    model_name = 'rnn'
+    fc_count = 0
+    for w in name.split('_'):
+        if 'rnn' in w:
+            model_name += w.replace('rnn', '')
+        elif 'fc' in w:
+            fc_count += 1
         else:
-            raise NotImplementedError
-            algorithms_ptrs = get_algorithms()[sys.argv[1]]
-            if algorithms_ptrs is None:
-                exit(1)
-        if len(sys.argv) > 2 and not str.isnumeric(sys.argv[2]):
-            network_path = sys.argv[2]
+            model_name += '_{}fc32'.format(fc_count)
+    return model_name
+
+
+def parse_results_file(name_path_map: Union[List[Tuple[str, str]], str], print_latex=False):
+    if isinstance(name_path_map, str) and name_path_map.endswith('pkl'):
+        os.makedirs("temp/", exist_ok=True)
+        results = pickle.load(open(name_path_map, "rb"))
+        name_path_map = []
+        new_files = defaultdict(dict)
+        for k, v in results.items():
+            model_name = '_'.join(k.split('_')[:-1])
+            new_files[model_name].update({k: v})
+        for k, v in new_files.items():
+            pickle.dump(v, open("temp/{}".format(k), "wb"))
+            name_path_map.append((k.replace("model_20classes_", ""), "temp/{}".format(k)))
+    if isinstance(name_path_map, str) and os.path.isdir(name_path_map):
+        tuples = []
+        for f in sorted(os.listdir(name_path_map)):
+            if not f.endswith('.pkl'):
+                continue
+            p = os.path.join(name_path_map, f)
+            if not os.path.isfile(p):
+                continue
+            m = extract_model_name(f)
+            tuples.append((m, p))
+        name_path_map = tuples
+
+    x = PrettyTable()
+    if len(set(name_path_map)) != len(name_path_map):
+        print('PROBLEM')
+    x.field_names = ['Tmax'] + [extract_model_name(p[0]) for p in name_path_map]  # if p[0] not in names]
+    rows = {}
+
+    total_time = 0
+    total_points = 0
+    total_timeout = 0
+    total_gurobi_time = 0
+    total_invariant_time = 0
+    total_property_time = 0
+    total_init_time = 0
+    sum_success = 0
+    max_query_time = -1
+    all_times = []
+    for p in name_path_map:
+        d = pickle.load(open(p[1], "rb"))
+        for key, value in d.items():
+            net_name = "_".join(key.split("_")[:-2])
+            t = int(key.split("_")[-1])
+            assert t >= 2
+            if t not in rows:
+                rows[t] = [t]
+
+            res = parse_dictionary(value)
+            success_rate = int(res['success_rate'] * 100)
+            all_times += res['time']
+            if max(res['time']) > max_query_time:
+                max_query_time = max(res['time'])
+            total_success = res['total_success']
+            sum_success += total_success
+            avg_run_time = res['avg_total_time_no_timeout']
+            avg_init_time = res['avg_initialize_query_time']
+
+            total_time += avg_run_time * res['total']
+            # assert np.abs(total_time - res['avg_total_time']) < 10 ** -3
+            total_points += res['total']
+            total_timeout += res['len_timeout']
+            total_init_time += res['avg_initialize_query_time'] * res['total']
+            total_gurobi_time += res['avg_step_time'] * res['total']
+            total_invariant_time += res['avg_invariant_time'] * res['total']
+            total_property_time += res['avg_property_time'] * res['total']
+            # assert timeout == 0
+            gurobi_time = res['avg_step_time_no_timeout']
+            ffnn_time = res['avg_invariant_time'] + res['avg_property_time'] + gurobi_time
+            assert ffnn_time < avg_run_time, "{}, {}, {}".format(ffnn_time, gurobi_time, avg_run_time)
+            # print(p)s
+            # print("total time: {}".format(total_time ))
+            # print("gurobi time: {}".format(total_gurobi_time))
+            # print("prop time: {}".format(total_property_time))
+            # print("ffnn time: {}".format(total_invariant_time + total_property_time))
+            # avg_marabou_invariant = res['avg_invariant_time_no_timeout'] - avg_gurobi_invariant
+            # print("Format is: time (#success/#total) (#timeout)")
+            # rows[t - t_range[0]].append("%.2f (%.2f,%.2f) %d/%d (%d)" % (avg_run_time, ffnn_time, gurobi_time,
+            #                                                              total_success, res['total'],
+            #                                                              res['len_timeout']))
+            rows[t].append("%.2f(%d/%d)" % (avg_run_time - avg_init_time, total_success, res['total']))
+
+    for row in rows.values():
+        x.add_row(row)
+    # for k, v in rows.items():
+    #     x.add_row([k] + ["{}({})".format(v[net_name][0], v[net_name][1]) for net_name in x.field_names])
+    print("Format is: time (#success/#total)")
+    print(x)
+    if print_latex:
+        for t, row in enumerate(rows.values()):
+            print("\t{} &&&".format(t + 2))
+            print(" &&& ".join(row[1:]).replace("  ", " "), "&")
+            print("\t\\\\")
+
+    avg_time = total_time / total_points
+    avg_gurobi = total_gurobi_time / total_points
+    avg_marabou_invariant = total_invariant_time / total_points
+    avg_property = total_property_time / total_points
+    avg_init = total_init_time / total_points
+    print("#" * 100)
+
+    avg_actual_time = avg_time - avg_init
+    print("Average run time {:.2f} seconds ({:.2f} including creating the query), over {} points, timeout: {}, success: {} ({:.2f})"
+          .format(avg_actual_time, avg_time, total_points, total_timeout, sum_success, sum_success / total_points))
+    print("Max query took: {:.2f} seconds ({:.2f} minutes), median: {:.2f}, 90percentie: {:.2f}".format(
+        max_query_time, max_query_time / 60, np.median(all_times), np.percentile(all_times, 90)))
+    print("avg Time in Gurobi: {:.2f}({:.2f}%), avg Time proving Invariant in Marabou {:.2f} ({:.2f}%),"
+          "avg Time proving property: {:.2f} ({:.2f}%), avg initialize time: {:.2f}"
+          .format(avg_gurobi, avg_gurobi / avg_actual_time,
+                  avg_marabou_invariant, avg_marabou_invariant / avg_actual_time,
+                  avg_property, avg_property / avg_actual_time,
+                  avg_init))
+    print("#" * 100)
+
+
+def parse_dictionary(exp):
+    # This is an experiment entry strcture:
+    #    { 'time', 'result', 'h5_file', 't', other_idx', 'in_tesnor',  'steps_num'
+    #   'stats':
+    #       {'property_times': {'avg', 'median', 'raw'},
+    #       'invariant_times': {'avg', 'median', 'raw'},
+    #       'step_times': {'avg', 'median', 'raw'},
+    #       'step_querites', 'property_queries', 'invariant_queries', 'number_of_updates', 'total_time'},
+    #   }
+
+    success_exp = [e for e in exp if e['result']]
+    timeout_exp = []
+    no_timeout_exp = []
+    for e in exp:
+        if 'number_of_updates' in e['stats'] and e['stats']['number_of_updates'] == e['stats']['property_queries'] \
+                and not e['result']:
+            timeout_exp.append(e)
+        elif 'FFNN_Timeout' in e['stats']:
+            timeout_exp.append(e)
+        else:
+            no_timeout_exp.append(e)
+
+    safe_mean = lambda x: np.mean(x) if len(x) > 0 else 0
+
+    d = {
+        'total': len(exp),
+        'total_success': len(success_exp),
+        'success_rate': len(success_exp) / len(exp),
+        'len_timeout': len(timeout_exp),
+        'time': [e['time'] - e['stats']['query_initialize'] for e in exp],
+        'invariant_time': [sum(e['stats']['invariant_times']['raw']) for e in exp],
+        'gurobi_time': [sum(e['stats']['step_times']['raw']) for e in exp],
+        'avg_total_time': safe_mean([e['time'] for e in exp]),
+        'avg_total_time_no_timeout': safe_mean([e['time'] for e in no_timeout_exp]),
+        'avg_invariant_time_no_timeout': safe_mean(
+            [sum(e['stats']['invariant_times']['raw']) for e in no_timeout_exp if 'invariant_times' in e['stats']]),
+        'avg_property_time_no_timeout': safe_mean(
+            [e['stats']['property_times']['avg'] for e in no_timeout_exp if 'property_times' in e['stats']]),
+        'avg_step_time_no_timeout': safe_mean(
+            [e['stats']['step_times']['avg'] for e in no_timeout_exp if 'step_times' in e['stats']]),
+        'avg_invariant_time': safe_mean(
+            [sum(e['stats']['invariant_times']['raw']) for e in exp if 'invariant_times' in e['stats']]),
+        'avg_property_time': safe_mean(
+            [sum(e['stats']['property_times']['raw']) for e in exp if 'property_times' in e['stats']]),
+        'avg_step_time': safe_mean([sum(e['stats']['step_times']['raw']) for e in exp if 'step_times' in e['stats']]),
+        'num_invariant_avg': safe_mean(
+            [e['stats']['invariant_queries'] for e in exp if 'invariant_queries' in e['stats']]),
+        'num_property_avg': safe_mean(
+            [e['stats']['property_queries'] for e in exp if 'property_queries' in e['stats']]),
+        'num_step_avg': safe_mean([e['stats']['step_queries'] for e in exp if 'step_queries' in e['stats']]),
+        'avg_total_time_success': safe_mean([e['time'] for e in success_exp]),
+        'avg_invariant_time_success': safe_mean([sum(e['stats']['invariant_times']['raw']) for e in success_exp]),
+        'avg_property_time_success': safe_mean([sum(e['stats']['property_times']['raw']) for e in success_exp]),
+        'avg_step_time_success': safe_mean([sum(e['stats']['step_times']['raw']) for e in success_exp]),
+        'num_invariant_avg_success': safe_mean([e['stats']['invariant_queries'] for e in success_exp]),
+        'num_property_avg_success': safe_mean([e['stats']['property_queries'] for e in success_exp]),
+        'num_step_avg_success': safe_mean([e['stats']['step_queries'] for e in success_exp]),
+        'avg_initialize_query_time': safe_mean(
+            [e['stats']['query_initialize'] for e in success_exp if 'query_initialize' in e['stats']])
+    }
+
+    gurobi_time = d['avg_step_time_no_timeout']
+    ffnn_time = d['avg_invariant_time_no_timeout'] + d['avg_property_time_no_timeout'] - gurobi_time
+    avg_run_time = d['avg_total_time_no_timeout']
+
+    assert ffnn_time < avg_run_time, "{}, {}, {}".format(ffnn_time, gurobi_time, avg_run_time)
+    return d
+
+
+def parse_inputs(points, other_idx_method, gurobi_ptr):
+    save_results = True
+
+    if sys.argv[1] == 'analyze':
+        if len(sys.argv) < 2:
+            print("USAGE analyze <path> --> where path is a path to single pickle results file or directory with multiple")
+        parse_results_file(sys.argv[2], print_latex=0)
+    elif sys.argv[1] == 'exp':
+        if len(sys.argv) > 3:
+            if sys.argv[2] == 'all':
+                net = ALL_NETS
+            else:
+                net = [sys.argv[2]]
+            t_range = range(2, int(sys.argv[3]) + 1)  # make T_max inclusive
+            run_all_experiments(net, points, t_range, other_idx_method, gurobi_ptr, steps_num=10,
+                                save_results=save_results)
+        else:
+            print("USAGE: exp <NET_PATH or all > <T_max>")
+            exit(1)
     else:
-        algorithms_ptrs = get_all_algorithms()
-    return algorithms_ptrs, network_path
+        print("USAGE: <exp  or analyze > followed by net + T_max or path respectively") 
+        exit(1)
 
 
 if __name__ == "__main__":
-    pd.set_option('display.max_columns', None)
-    pd.set_option('display.expand_frame_repr', False)
-    pd.set_option('max_colwidth', -1)
-    np.random.seed(9)
 
-    algorithms_ptrs = get_all_algorithms()
-    other_idx_method = [lambda x: np.argsort(x)[-i] for i in range(2, 7)]
+    other_idx_method = [lambda x: np.argsort(x)[-i] for i in range(2, 2 + NUM_RUNNER_UP)]
+
+    points = pickle.load(open(POINTS_PATH, "rb"))[:NUM_SAMPLE_POINTS]
+    gurobi_ptr = partial(GurobiMultiLayer, polyhedron_max_dim=2, use_relu=True, add_alpha_constraint=True,
+                         use_counter_example=True, debug=1)
 
     if len(sys.argv) > 1:
-        if sys.argv[1] == 'controlled':
-            if len(sys.argv) < 3:
-                print('usuage: rnn_experiment/self_compare/experiment.py controlled [MODEL_PATH] [POINTS_PATH] [START_IDX OPTINAL]')
-            model_path = sys.argv[2]
-            points_path = sys.argv[3]
-            start_idx = 0
-            if len(sys.argv) > 4:
-                start_idx = int(sys.argv[4])
-            points = pickle.load(open(points_path, "rb"))
-            n_iterations = 12
-            radius = 0.01
-            results = run_controlled_experiment(model_path, algorithms_ptrs, points, other_idx_method, radius, n_iterations, start_idx)
-            exit(0)
+        net_options = None
+        parse_inputs(points, other_idx_method, gurobi_ptr)
+        exit(0)
 
-
-    for model_path in ["models/model_20classes_rnn4_rnn4_fc32_fc32_fc32_fc32_epochs50.h5",
-                       "models/model_20classes_rnn4_rnn4_fc32_fc32_fc32_fc32_fc32_epochs50.h5"
-                       ]:
-        points = pickle.load(open("pickles/points.pkl", "rb"))
-        n_iterations = 4
-        radius = 0
-        results = run_controlled_experiment(model_path, algorithms_ptrs, points, other_idx_method, radius, n_iterations, 0,
-                                            steps_num=5000)
-        for k in results.keys():
-            if 'gurobi' not in results[k]:
-                continue
-            exp_res = results[k]['gurobi']['result']
-            if exp_res:
-                print('SUCCESS')
-                print(results[k])
-                exit(1)
+    t_range = range(2, 21)
+    # run_all_experiments(['models/AUTOMATIC_MODELS/model_20classes_rnn4_rnn4_fc32_fc320002.ckpt'], points, t_range,
+    #                     other_idx_method, gurobi_ptr, steps_num=10)
+    # exit(0)
+    nets = [f for f in os.listdir(MODELS_FOLDER) if "20classes" in f]
+    run_all_experiments(nets, points, t_range, other_idx_method, gurobi_ptr, save_results=0, steps_num=1)
     exit(0)
 
-    algorithms_ptrs, network_path = parse_input_strings()
-    network_path = 'simple_model.h5'
-    # np.random.seed(10)
-    algorithms_ptrs = {
-        'gurobi_base': partial(GurobiMultiLayer, use_relu=True, add_alpha_constraint=True, use_counter_example=True),
-        'gurobi_random': partial(GurobiMultiLayerRandom, use_relu=True, add_alpha_constraint=True,
-                                 use_counter_example=True, max_steps=15),
-        'gurobi_IIS': partial(GurobiMultiLayerIIS, use_relu=True, add_alpha_constraint=True,
-                              use_counter_example=True, max_steps=15)
-    }
+    net = "ATVA_EXP/models/epochs200/model_20classes_rnn2_fc32_fc32_fc32_fc32_fc32_epochs200.h5"
+    # net = "model_20classes_rnn16_fc32_fc32_fc32_fc32_0100.ckpt"
+    t_range = range(13, 14)
+    fail_indices = [2, 7, 9, 11, 12, 13, 15, 16, 17, 18, 20, 21, 22, 24]
+    import operator
 
-    network_path = "model_20classes_rnn2_fc32_epochs200.h5"
+    points = operator.itemgetter(*fail_indices)(points)
+    # points = map(points.__getitem__, fail_indices)
 
-    df = run_random_experiment(network_path, algorithms_ptrs, mean=-2, var=18, n_iterations=25, radius=0.1,
-                               steps_num=5000, num_points=1)
-    # for t in range(5,15):
-    #     counter = 0
-    #     for _ in range(5):
-    #         try:
-    #             df = run_random_experiment(network_path, algorithms_ptrs,mean=1, var=1, n_iterations=12, radius=0.1,
-    #                                        steps_num=2, num_points=1)
-    #             counter += 1
-    #         except ValueError as e:
-    #             pass
-    #     print("for t={} got {} fesiable  solutions".format(t, counter))
+    run_all_experiments([net], points, t_range, other_idx_method, gurobi_ptr, save_results=0, steps_num=1)
+    # run_all_experiments([net_options[3]], points[:2], t_range, other_idx_method, gurobi_multi, save_results=0, steps_num=2)
