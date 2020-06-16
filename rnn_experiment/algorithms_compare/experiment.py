@@ -52,8 +52,6 @@ def run_exp_signle_time(points, radius, h5_file, t, only_rns=False, pbar=None, s
                 res = False
                 our_time = -1
             assert res
-        # total_ours += our_time
-        # total_rns += rnsverify_time
         if pbar:
             pbar.update(1)
 

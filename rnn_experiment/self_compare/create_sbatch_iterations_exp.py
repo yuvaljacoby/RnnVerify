@@ -4,10 +4,11 @@ import sys
 import shutil
 
 BASE_FOLDER = "."
-if os.path.exists("/cs/usr/yuvalja/projects/Marabou"):
-    BASE_FOLDER = "/cs/usr/yuvalja/projects/Marabou"
+CLUSTER_FOLDER = "/cs/usr/yuvalja/projects/Marabou"
+if os.path.exists(CLUSTER_FOLDER):
+    BASE_FOLDER = CLUSTER_FOLDER 
 
-OUT_FOLDER = os.path.join(BASE_FOLDER, "pickles/self_compare")
+OUT_FOLDER = os.path.join(BASE_FOLDER, "out_self_compare/")
 os.makedirs(BASE_FOLDER, exist_ok=True)
 os.makedirs(OUT_FOLDER, exist_ok=True)
 
@@ -34,7 +35,8 @@ def write_one_sbatch(output_folder, model):
         slurm_file.write('#SBATCH --mail-type=FAIL\n')
         slurm_file.write('#SBATCH --mail-user=yuvalja@cs.huji.ac.il\n')
         slurm_file.write('#SBATCH -w, --nodelist=hm-68\n') # gurobi license problems, only this node has the acadamic license
-        slurm_file.write('export LD_LIBRARY_PATH=/cs/usr/yuvalja/projects/Marabou\n')
+        slurm_file.write('export LD_LIBRARY_PATH={}\n'.format(BASE_FOLDER))
+        # slurm_file.write('export LD_LIBRARY_PATH=/cs/usr/yuvalja/projects/Marabou\n')
         slurm_file.write('export PYTHONPATH=$PYTHONPATH:"$(dirname "$(pwd)")"/Marabou\n')
         slurm_file.write('python3 rnn_experiment/self_compare/experiment.py {} {}\n'.format("exp", model))
 
@@ -53,7 +55,7 @@ def create_sbatch(output_folder, models_folder, cache_folder=''):
         write_one_sbatch(output_folder, os.path.join(models_folder, model))
 
 def print_help():
-    print("out_folder, models_dir, cache_dir (optional)")
+    print("USAGE: sbatch_folder, models_dir, cache_dir (optional)")
     
 if __name__ == '__main__':
     out_folder = sys.argv[1]
