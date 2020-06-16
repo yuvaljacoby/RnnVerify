@@ -5,7 +5,7 @@ import shutil
 import time
 
 BASE_FOLDER = "."
-CLUSTER_FOLDER = "/cs/usr/yuvalja/projects/Marabou"
+CLUSTER_FOLDER = "/cs/usr/yuvalja/projects/RnnVerify"
 if os.path.exists(CLUSTER_FOLDER):
     BASE_FOLDER = CLUSTER_FOLDER 
 
@@ -31,7 +31,7 @@ def write_one_sbatch(sbatch_folder, t):
         slurm_file.write('#SBATCH --time=24:00:00\n')
         slurm_file.write('#SBATCH --output={}/rns_{}_{}.out\n'.format(OUT_FOLDER, t, time.strftime("%Y%m%d-%H%M%S")))
         slurm_file.write('#SBATCH --mem-per-cpu=500\n')
-        slurm_file.write('#SBATCH -w, --nodelist=hm-68\n') # gurobi license problems, only this node has the acadamic license
+        slurm_file.write('#SBATCH -w, --nodelist=hm-66\n') # gurobi license problems, only this node has the acadamic license
         slurm_file.write('#SBATCH --mail-user=yuvalja@cs.huji.ac.il\n')
         slurm_file.write('export LD_LIBRARY_PATH={}\n'.format(BASE_FOLDER))
         slurm_file.write('export PYTHONPATH=$PYTHONPATH:"$(dirname "$(pwd)")"/Marabou\n')
@@ -48,10 +48,9 @@ def create_sbatch(sbatch_folder: str, times: int):
 
 if __name__ == '__main__':
     sbatch_folder = sys.argv[1]
-    if out_folder == 'help':
+    if sbatch_folder == 'help':
         print("USAGE: <SBATCH_FOLDER>, <T_MAX>")
-        print("creates an sbatch file that compares
-                RnnVerify and RNSVerify or each time in range(2,T_MAT_MAX)")
+        print("creates an sbatch file that compares RnnVerify and RNSVerify or each time in range(2,T_MAT_MAX)")
 
     if len(sys.argv) > 2:
         create_sbatch(sbatch_folder, int(sys.argv[2]))

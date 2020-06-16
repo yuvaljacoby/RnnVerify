@@ -4,7 +4,7 @@ import sys
 import shutil
 
 BASE_FOLDER = "."
-CLUSTER_FOLDER = "/cs/usr/yuvalja/projects/Marabou"
+CLUSTER_FOLDER = "/cs/usr/yuvalja/projects/RnnVerify"
 if os.path.exists(CLUSTER_FOLDER):
     BASE_FOLDER = CLUSTER_FOLDER 
 
@@ -21,7 +21,7 @@ def check_if_model_in_dir(model_name: str, output_folder: str):
     return False
 
 
-def write_one_sbatch(output_folder, model):
+def write_one_sbatch(output_folder, model, Tmax):
     exp_time = str(datetime.now()).replace(" ", "-")
     model_name = model[model.rfind('/') + 1 : model.rfind('.')]
     with open(os.path.join(output_folder, "run_iterations_exp_" + model_name + ".sh"), "w") as slurm_file:
@@ -34,13 +34,13 @@ def write_one_sbatch(output_folder, model):
         slurm_file.write('#SBATCH --mem-per-cpu=500\n')
         slurm_file.write('#SBATCH --mail-type=FAIL\n')
         slurm_file.write('#SBATCH --mail-user=yuvalja@cs.huji.ac.il\n')
-        slurm_file.write('#SBATCH -w, --nodelist=hm-68\n') # gurobi license problems, only this node has the acadamic license
+        slurm_file.write('#SBATCH -w, --nodelist=hm-66\n') # gurobi license problems, only this node has the acadamic license
         slurm_file.write('export LD_LIBRARY_PATH={}\n'.format(BASE_FOLDER))
         # slurm_file.write('export LD_LIBRARY_PATH=/cs/usr/yuvalja/projects/Marabou\n')
         slurm_file.write('export PYTHONPATH=$PYTHONPATH:"$(dirname "$(pwd)")"/Marabou\n')
-        slurm_file.write('python3 rnn_experiment/self_compare/experiment.py {} {}\n'.format("exp", model))
+        slurm_file.write('python3 rnn_experiment/self_compare/experiment.py {} {} {}\n'.format("exp", model, Tmax))
 
-def create_sbatch(output_folder, models_folder, cache_folder=''):
+def create_sbatch(output_folder, models_folder, Tmax, cache_folder=''):
     print("*" * 100)
     print("creating sbatch {}".format('using cache {}'.format(cache_folder) if cache_folder else ''))
     print("*" * 100)
@@ -52,17 +52,17 @@ def create_sbatch(output_folder, models_folder, cache_folder=''):
     for model in os.listdir(models_folder):
         if check_if_model_in_dir(model, cache_folder):
             continue
-        write_one_sbatch(output_folder, os.path.join(models_folder, model))
+        write_one_sbatch(output_folder, os.path.join(models_folder, model), Tmax)
 
 def print_help():
-    print("USAGE: sbatch_folder, models_dir, cache_dir (optional)")
+    print("USAGE: sbatch_folder, models_dir, T_max, cache_dir (optional)")
     
 if __name__ == '__main__':
     out_folder = sys.argv[1]
     if out_folder == 'help':
         print_help()
-    elif len(sys.argv) > 2:
-        create_sbatch(out_folder, sys.argv[2], sys.argv[3] if len(sys.argv) >= 4 else '')
+    elif len(sys.argv) > 3:
+        create_sbatch(out_folder, sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) >= 5 else '')
     else:
         print_help()
         exit(1)

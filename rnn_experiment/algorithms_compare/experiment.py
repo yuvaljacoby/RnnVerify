@@ -17,7 +17,7 @@ from rns_verify.verify_keras import verify_query as rns_verify_query
 
 # BASE_FOLDER = "/home/yuval/projects/Marabou/"
 BASE_FOLDER = "."
-CS_BASE_FOLDER = "/cs/usr/yuvalja/projects/Marabou"
+CS_BASE_FOLDER = "/cs/usr/yuvalja/projects/RnnVerify"
 if os.path.exists(CS_BASE_FOLDER):
     BASE_FOLDER = CS_BASE_FOLDER
 
