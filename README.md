@@ -15,6 +15,8 @@ This file contains instructions for compiling RnnVerify and for running
 the experiments described in the paper, and also some information on
 the RnnVerify code and the various folders.
 
+We use Marabou as an underline feed-forward verification tool, Marabou's code is included here and was last updated at [Nov 2019](https://github.com/NeuralNetworkVerification/Marabou/commit/29899653d2043955fa29548112dbd6397380cf42)
+
 ## Compilation Instructions
 
 The implementation was run and tested on Ubuntu 16.04.
